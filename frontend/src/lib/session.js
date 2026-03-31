@@ -1,7 +1,7 @@
 import { config } from '../config/env.js'
 
-const ACCESS_TOKEN_KEY = 'accessToken'
 const REFRESH_TOKEN_KEY = 'refreshToken'
+const CURRENT_SESSION_ID_KEY = 'currentSessionId'
 
 let inMemoryAccessToken = null
 let isRefreshing = false
@@ -15,16 +15,25 @@ export function getRefreshToken() {
   return window.localStorage.getItem(REFRESH_TOKEN_KEY)
 }
 
-export function setSessionTokens({ accessToken, refreshToken }) {
+/** Mongo session id for this browser, when returned by login / refresh / MFA. */
+export function getCurrentSessionId() {
+  return window.localStorage.getItem(CURRENT_SESSION_ID_KEY)
+}
+
+export function setSessionTokens({ accessToken, refreshToken, sessionId }) {
   inMemoryAccessToken = accessToken || null
   if (refreshToken) {
     window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
+  }
+  if (sessionId) {
+    window.localStorage.setItem(CURRENT_SESSION_ID_KEY, String(sessionId))
   }
 }
 
 export function clearSession() {
   inMemoryAccessToken = null
   window.localStorage.removeItem(REFRESH_TOKEN_KEY)
+  window.localStorage.removeItem(CURRENT_SESSION_ID_KEY)
 }
 
 async function refreshAccessTokenOnce() {
@@ -59,6 +68,7 @@ async function refreshAccessTokenOnce() {
       setSessionTokens({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
+        sessionId: data.sessionId,
       })
 
       return data.accessToken
@@ -72,6 +82,26 @@ async function refreshAccessTokenOnce() {
   })()
 
   return pendingRefreshPromise
+}
+
+// Public wrapper so callers that don't go through `apiRequest()` can refresh.
+export async function refreshAccessToken() {
+  return refreshAccessTokenOnce()
+}
+
+/**
+ * If access token is missing but a refresh token exists, obtain a new access token.
+ * Call on app load so returning users go straight to chat (similar to Google session restore).
+ */
+export async function tryRestoreSession() {
+  if (getAccessToken()) {
+    return true
+  }
+  if (!getRefreshToken()) {
+    return false
+  }
+  const access = await refreshAccessTokenOnce()
+  return Boolean(access)
 }
 
 export async function apiRequest(path, options = {}) {

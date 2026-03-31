@@ -4,6 +4,7 @@ import { Button } from '../components/ui/Button.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { config } from '../config/env.js'
 import { setSessionTokens } from '../lib/session.js'
+import { resolvePostAuthDestination } from '../lib/authRedirect.js'
 import { useApp } from '../context/AppContext.jsx'
 
 function validateCode(code) {
@@ -26,6 +27,7 @@ function Mfa() {
 
   const tempToken = state.tempToken
   const email = state.email
+  const from = state.from
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -59,15 +61,19 @@ function Mfa() {
         return
       }
 
-      if (data.accessToken && data.refreshToken) {
-        setSessionTokens({
-          accessToken: data.accessToken,
-          refreshToken: data.refreshToken,
-        })
-        await refreshUser()
+      if (!data.accessToken || !data.refreshToken) {
+        setApiError(data.error || 'Verification incomplete. Please try again.')
+        return
       }
 
-      navigate('/chat', { replace: true })
+      setSessionTokens({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        sessionId: data.sessionId,
+      })
+      await refreshUser()
+      const next = resolvePostAuthDestination(from, '/chat')
+      navigate('/welcome', { replace: true, state: { next } })
     } catch (err) {
       setApiError('Unable to reach server. Check your connection and try again.')
     } finally {

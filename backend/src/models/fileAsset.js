@@ -18,7 +18,6 @@ const fileAssetSchema = new mongoose.Schema(
     hash: {
       type: String,
       required: true,
-      unique: true,
     },
     mimeType: {
       type: String,
@@ -37,8 +36,20 @@ const fileAssetSchema = new mongoose.Schema(
       default: 'uploaded',
       index: true,
     },
+    originalName: {
+      type: String,
+    },
     scannedAt: {
       type: Date,
+    },
+    cloudinaryPublicId: {
+      type: String,
+    },
+    cloudinaryUrl: {
+      type: String,
+    },
+    cloudinarySecureUrl: {
+      type: String,
     },
   },
   {

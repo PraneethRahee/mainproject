@@ -2,6 +2,7 @@ const express = require('express');
 const { AuditLog } = require('../models');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
+const { writeAuditLog, getRequestClientInfo } = require('../middleware/audit');
 
 const router = express.Router();
 
@@ -23,6 +24,18 @@ router.get('/audit-logs', async (req, res) => {
       .exec();
 
     const total = await AuditLog.countDocuments();
+
+    const { ip, userAgent } = getRequestClientInfo(req);
+    await writeAuditLog({
+      actorId: req.user.id,
+      action: 'admin.audit_logs.view',
+      targetType: 'admin',
+      targetId: null,
+      result: 'success',
+      ip,
+      userAgent,
+      metadata: { limit, skip },
+    });
 
     return res.status(200).json({
       logs,

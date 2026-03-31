@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { config } from '../config/env.js'
 import { setSessionTokens } from '../lib/session.js'
+import { resolvePostAuthDestination } from '../lib/authRedirect.js'
 import { useApp } from '../context/AppContext.jsx'
 
 function validateEmail(email) {
@@ -29,7 +30,20 @@ function Login() {
   const [successMessage, setSuccessMessage] = useState('')
 
   const navigate = useNavigate()
-  const { refreshUser } = useApp()
+  const location = useLocation()
+  const { refreshUser, logout } = useApp()
+
+  useEffect(() => {
+    const msg = location.state?.message
+    if (typeof msg === 'string' && msg) {
+      setSuccessMessage(msg)
+      const { from } = location.state || {}
+      navigate(location.pathname, {
+        replace: true,
+        state: from ? { from } : {},
+      })
+    }
+  }, [location.pathname, location.state?.message, location.state?.from, navigate])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -71,6 +85,7 @@ function Login() {
           state: {
             tempToken: data.tempToken,
             email: email.trim(),
+            from: location.state?.from,
           },
           replace: true,
         })
@@ -78,9 +93,11 @@ function Login() {
         setSessionTokens({
           accessToken: data.accessToken,
           refreshToken: data.refreshToken,
+          sessionId: data.sessionId,
         })
         await refreshUser()
-        navigate('/chat', { replace: true })
+        const next = resolvePostAuthDestination(location.state?.from, '/chat')
+        navigate('/welcome', { replace: true, state: { next } })
       } else {
         setSuccessMessage('Login successful.')
       }
@@ -93,6 +110,19 @@ function Login() {
 
   return (
     <div className="page-placeholder">
+      <p style={{ marginBottom: 'var(--space-3)' }}>
+        <Link
+          to="/"
+          style={{
+            fontSize: 'var(--text-sm)',
+            fontWeight: 600,
+            color: 'var(--color-text-muted)',
+            textDecoration: 'none',
+          }}
+        >
+          ← Back to home
+        </Link>
+      </p>
       <h1>Welcome back</h1>
       <p>Sign in to continue chatting with your team.</p>
 
@@ -147,6 +177,53 @@ function Login() {
           </Button>
         </div>
       </form>
+
+      <p
+        style={{
+          marginTop: 'var(--space-5)',
+          fontSize: 'var(--text-sm)',
+          color: 'var(--color-text-muted)',
+          textAlign: 'center',
+        }}
+      >
+        Don&apos;t have an account?{' '}
+        <Link to="/register" style={{ color: 'var(--color-primary-hover)', fontWeight: 600 }}>
+          Create account
+        </Link>
+      </p>
+
+      <p
+        style={{
+          marginTop: 'var(--space-4)',
+          fontSize: 'var(--text-sm)',
+          textAlign: 'center',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            logout()
+            setEmail('')
+            setPassword('')
+            setErrors({})
+            setApiError('')
+            setSuccessMessage('')
+          }}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            color: 'var(--color-primary-hover)',
+            fontWeight: 600,
+            fontSize: 'inherit',
+            fontFamily: 'inherit',
+            textDecoration: 'underline',
+          }}
+        >
+          Use another account
+        </button>
+      </p>
     </div>
   )
 }

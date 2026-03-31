@@ -1,16 +1,13 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const createDOMPurify = require('isomorphic-dompurify');
-const { JSDOM } = require('jsdom');
+const DOMPurify = require('isomorphic-dompurify');
 const { Message, FileAsset, Channel } = require('../models');
 const { checkRateLimit } = require('../redis');
 const { requireAuth } = require('../middleware/auth');
 const { requireChannelMember } = require('../middleware/channelMembership');
+const { writeAuditLog, getRequestClientInfo } = require('../middleware/audit');
 
 const router = express.Router({ mergeParams: true });
-
-const window = new JSDOM('').window;
-const DOMPurify = createDOMPurify(window);
 
 router.use(requireAuth);
 
@@ -42,12 +39,40 @@ router.get('/channels/:id/messages', requireChannelMember('id'), async (req, res
       items = messages.slice(0, pageSize);
     }
 
+    const allAttachmentIds = Array.from(
+      new Set(items.flatMap((m) => (m.attachments || []).map((id) => String(id)))),
+    );
+
+    let fileMap = new Map();
+    if (allAttachmentIds.length > 0) {
+      const files = await FileAsset.find({
+        _id: { $in: allAttachmentIds },
+      })
+        .select('_id cloudinarySecureUrl cloudinaryUrl mimeType originalName')
+        .lean()
+        .exec();
+
+      fileMap = new Map(files.map((f) => [String(f._id), f]));
+    }
+
     const sanitized = items.map((m) => ({
       id: String(m._id),
       channel: String(m.channel),
       sender: String(m.sender),
       content: m.content,
       attachments: (m.attachments || []).map(String),
+      attachmentDetails: (m.attachments || [])
+        .map((id) => {
+          const file = fileMap.get(String(id));
+          if (!file) return null;
+          return {
+            id: String(id),
+            url: file.cloudinarySecureUrl || file.cloudinaryUrl || null,
+            mimeType: file.mimeType,
+            fileName: file.originalName || null,
+          };
+        })
+        .filter(Boolean),
       createdAt: m.createdAt,
       editedAt: m.editedAt || null,
     }));
@@ -104,6 +129,7 @@ router.post('/channels/:id/messages', requireChannelMember('id'), async (req, re
     }
 
     let attachments = [];
+    let attachmentDetails = [];
     if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
       const cleanIds = attachmentIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
 
@@ -112,11 +138,17 @@ router.post('/channels/:id/messages', requireChannelMember('id'), async (req, re
           _id: { $in: cleanIds },
           scanStatus: 'scanned_clean',
         })
-          .select('_id')
+          .select('_id cloudinarySecureUrl cloudinaryUrl mimeType originalName')
           .lean()
           .exec();
 
         attachments = files.map((f) => f._id);
+        attachmentDetails = files.map((f) => ({
+          id: String(f._id),
+          url: f.cloudinarySecureUrl || f.cloudinaryUrl || null,
+          mimeType: f.mimeType,
+          fileName: f.originalName || null,
+        }));
       }
     }
 
@@ -129,12 +161,28 @@ router.post('/channels/:id/messages', requireChannelMember('id'), async (req, re
 
     await Channel.findByIdAndUpdate(channelId, { $set: { lastMessageAt: new Date() } }).exec();
 
+    const { ip, userAgent } = getRequestClientInfo(req);
+    await writeAuditLog({
+      actorId: userId,
+      action: 'chat.message.send',
+      targetType: 'message',
+      targetId: String(message._id),
+      result: 'success',
+      ip,
+      userAgent,
+      metadata: {
+        channelId,
+        hasAttachments: attachments.length > 0,
+      },
+    });
+
     return res.status(201).json({
       id: String(message._id),
       channel: String(message.channel),
       sender: String(message.sender),
       content: message.content,
       attachments: message.attachments.map(String),
+      attachmentDetails,
       createdAt: message.createdAt,
       editedAt: message.editedAt || null,
     });

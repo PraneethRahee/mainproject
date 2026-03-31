@@ -1,8 +1,10 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const speakeasy = require('speakeasy');
+const mongoose = require('mongoose');
 const { User, Session } = require('../models');
 const { AuditLog } = require('../models');
+const { requireAuth } = require('../middleware/auth');
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -115,20 +117,27 @@ router.post('/mfa/verify', async (req, res) => {
   try {
     await applyRateLimitOrThrow(req, 'auth:mfa_verify', 10, 60);
 
-    const { tempToken, code } = req.body || {};
+    const { tempToken, accessToken, code } = req.body || {};
 
-    if (!tempToken || !code) {
-      return res.status(400).json({ error: 'tempToken and code are required' });
+    if (!code || (!tempToken && !accessToken)) {
+      return res.status(400).json({ error: 'code and either tempToken or accessToken are required' });
     }
 
     let decoded;
     try {
-      decoded = verifyToken(tempToken);
+      decoded = verifyToken(tempToken || accessToken);
     } catch {
-      return res.status(401).json({ error: 'Invalid or expired temp token' });
+      return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
-    if (!decoded.mfaPending || !decoded.sub) {
+    if (!decoded.sub) {
+      return res.status(400).json({ error: 'Invalid token payload' });
+    }
+
+    // Existing login-time flow: mfaPending temp token is valid.
+    // Initial enrollment flow: normal access token can be used to activate MFA once secret is set.
+    const isEnrollmentActivation = !tempToken && !!accessToken;
+    if (!isEnrollmentActivation && !decoded.mfaPending) {
       return res.status(400).json({ error: 'Invalid MFA challenge token' });
     }
 
@@ -180,6 +189,7 @@ router.post('/mfa/verify', async (req, res) => {
     return res.status(200).json({
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
+      sessionId: String(tokens.sessionId),
     });
   } catch (err) {
     console.error('MFA verify error', err);
@@ -339,6 +349,7 @@ router.post('/login', async (req, res) => {
     return res.status(200).json({
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
+      sessionId: String(tokens.sessionId),
     });
   } catch (err) {
     console.error('Login error', err);
@@ -461,11 +472,72 @@ router.post('/refresh', async (req, res) => {
     return res.status(200).json({
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
+      sessionId: String(tokens.sessionId),
     });
   } catch (err) {
     console.error('Refresh error', err);
     const status = err.status || 500;
     return res.status(status).json({ error: 'Refresh failed' });
+  }
+});
+
+// GET /auth/sessions
+// Returns session metadata for the authenticated user.
+router.get('/sessions', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const sessions = await Session.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    return res.status(200).json({
+      sessions: sessions.map((s) => ({
+        sessionId: String(s._id),
+        tokenFamilyId: s.tokenFamilyId || null,
+        userAgent: s.userAgent || '',
+        ip: s.ip || '',
+        expiresAt: s.expiresAt || null,
+        revokedAt: s.revokedAt || null,
+        revokedReason: s.revokedReason || null,
+        createdAt: s.createdAt || null,
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to load sessions' });
+  }
+});
+
+// DELETE /auth/sessions/:sessionId
+// Revokes a specific session so its refresh token cannot be used again.
+router.delete('/sessions/:sessionId', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { sessionId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(sessionId)) return res.status(400).json({ error: 'Invalid sessionId' });
+
+    const session = await Session.findOne({ _id: sessionId, user: userId }).exec();
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    session.revokedAt = new Date();
+    session.revokedReason = 'revoked';
+    await session.save();
+
+    const clientInfo = getClientInfo(req);
+    await logAuthEvent({
+      actorId: userId,
+      action: 'auth.session_revoke',
+      targetId: String(session._id),
+      result: 'success',
+      ip: clientInfo.ip,
+      userAgent: clientInfo.userAgent,
+      metadata: { tokenFamilyId: session.tokenFamilyId || null },
+    });
+
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to revoke session' });
   }
 });
 

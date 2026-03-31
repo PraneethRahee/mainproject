@@ -35,11 +35,13 @@ const PRESENCE_TTL_SECONDS = 60;
 async function setUserPresence(userId, status) {
   const c = await getRedisClient();
   const key = `presence:user:${userId}`;
-  const value = JSON.stringify({
+  const presence = {
     status,
     updatedAt: new Date().toISOString(),
-  });
+  };
+  const value = JSON.stringify(presence);
   await c.set(key, value, { EX: PRESENCE_TTL_SECONDS });
+  return presence;
 }
 
 async function getUserPresence(userId) {

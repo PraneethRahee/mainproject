@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { apiRequest } from '../lib/session.js'
-import { getAccessToken, clearSession } from '../lib/session.js'
+import { apiRequest, getAccessToken, clearSession, tryRestoreSession } from '../lib/session.js'
 
 const AppContext = createContext(null)
 
@@ -9,13 +8,15 @@ export function AppProvider({ children }) {
   const [userLoading, setUserLoading] = useState(true)
 
   const refreshUser = useCallback(async () => {
-    if (!getAccessToken()) {
-      setUser(null)
-      setUserLoading(false)
-      return
-    }
     setUserLoading(true)
     try {
+      await tryRestoreSession()
+
+      if (!getAccessToken()) {
+        setUser(null)
+        return
+      }
+
       const res = await apiRequest('/users/me')
       const data = await res.json().catch(() => ({}))
       if (res.ok) {

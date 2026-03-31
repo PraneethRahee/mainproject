@@ -1,0 +1,41 @@
+## Root gitignore (covers backend + frontend)
+
+# Environment / secrets (never commit real .env — use .env.example)
+.env
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+.env.local
+**/.env.local
+
+# Node
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+# Build outputs
+dist/
+**/dist/
+build/
+**/build/
+.next/
+**/.next/
+coverage/
+**/coverage/
+
+# Vite
+**/.vite/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Cursor / tooling
+.cursor/
+

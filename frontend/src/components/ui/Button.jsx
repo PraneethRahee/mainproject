@@ -1,22 +1,16 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 
-const baseClasses =
-  'inline-flex items-center justify-center font-medium rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2'
-
 const variants = {
-  primary:
-    'bg-[var(--color-primary)] text-white border-transparent hover:bg-[var(--color-primary-hover)]',
-  secondary:
-    'bg-[var(--color-surface-elevated)] text-[var(--color-text)] border-[var(--color-border)] hover:border-[var(--color-primary)]',
-  ghost:
-    'bg-transparent text-[var(--color-text-muted)] border-transparent hover:bg-[var(--color-surface-elevated)]',
+  primary: 'ui-button-primary',
+  secondary: 'ui-button-secondary',
+  ghost: 'ui-button-ghost',
 }
 
 const sizes = {
-  sm: 'text-[var(--text-xs)] px-[var(--space-3)] py-[0.35rem]',
-  md: 'text-[var(--text-sm)] px-[var(--space-4)] py-[0.55rem]',
-  lg: 'text-[var(--text-md)] px-[var(--space-5)] py-[0.7rem]',
+  sm: 'ui-button-sm',
+  md: 'ui-button-md',
+  lg: 'ui-button-lg',
 }
 
 export function Button({
@@ -28,16 +22,17 @@ export function Button({
   className = '',
   ...props
 }) {
-  const variantClasses = variants[variant] ?? variants.primary
-  const sizeClasses = sizes[size] ?? sizes.md
+  const variantClass = variants[variant] ?? variants.primary
+  const sizeClass = sizes[size] ?? sizes.md
 
   return (
     <button
       type={type}
       disabled={disabled}
-      className={`${baseClasses} ${variantClasses} ${sizeClasses} ${
+      className={`ui-button ${variantClass} ${sizeClass} ${
         disabled ? 'opacity-60 cursor-not-allowed' : ''
       } ${className}`}
+      style={disabled ? { opacity: 0.6, cursor: 'not-allowed', pointerEvents: 'none' } : {}}
       {...props}
     >
       {children}

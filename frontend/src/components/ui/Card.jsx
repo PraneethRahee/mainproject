@@ -6,23 +6,30 @@ export function Card({ children, elevated = false, className = '', ...props }) {
     <section
       className={className}
       style={{
-        borderRadius: 'var(--radius-lg)',
+        borderRadius: 'var(--radius-xl)',
         border: '1px solid var(--color-border)',
-        padding: 'var(--space-5)',
+        padding: 'var(--space-6)',
         background: elevated
-          ? 'linear-gradient(145deg, rgba(15,23,42,0.96), rgba(30,64,175,0.75))'
+          ? 'rgba(13, 16, 33, 0.8)'
           : 'var(--color-surface)',
         boxShadow: elevated
-          ? '0 18px 45px rgba(15, 23, 42, 0.55)'
-          : '0 10px 30px rgba(15, 23, 42, 0.45)',
-        backdropFilter: 'blur(18px)',
-        transition: `transform var(--transition-base), box-shadow var(--transition-base)`,
+          ? 'var(--shadow-lg)'
+          : 'var(--shadow-md)',
+        backdropFilter: 'var(--blur-md)',
+        WebkitBackdropFilter: 'var(--blur-md)',
+        transition: `all var(--transition-base)`,
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-2px)'
+        if (elevated) {
+          e.currentTarget.style.transform = 'translateY(-4px)'
+          e.currentTarget.style.boxShadow = 'var(--shadow-glow)'
+        }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(0)'
+        if (elevated) {
+          e.currentTarget.style.transform = 'translateY(0)'
+          e.currentTarget.style.boxShadow = 'var(--shadow-lg)'
+        }
       }}
       {...props}
     >

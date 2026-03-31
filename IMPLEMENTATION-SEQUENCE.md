@@ -72,18 +72,31 @@ Execute in this order. Each step = **one new chat** with the corresponding promp
 
 
 | 21 | B11 File upload | backend-subtask-prompts/B11-file-upload.md | Upload endpoint |
+
 | 22 | F11 Attachment upload | subtask-prompts/F11-attachment-upload.md | Attach button, progress |
+
 | 23 | B12 File validation | backend-subtask-prompts/B12-file-validation.md | MIME, extension guard |
+
 | 24 | B13 Scan worker | backend-subtask-prompts/B13-scan-worker.md | Quarantine → scan |
+
 | 25 | B14 File access | backend-subtask-prompts/B14-file-access.md | Status + download |
+
 | 26 | F12 Attachment safety | subtask-prompts/F12-attachment-safety.md | Status UI |
+
 | 27 | B15 Socket auth/events | backend-subtask-prompts/B15-socket-auth-events.md | Real-time layer |
+
 | 28 | F13 Socket layer | subtask-prompts/F13-socket-layer.md | Client socket |
+
 | 29 | F14 Delivery/read | subtask-prompts/F14-delivery-read-status.md | Status indicators |
+
 | 30 | F15 Secure rendering | subtask-prompts/F15-secure-rendering.md | XSS hardening |
+
 | 31 | B16 Audit logging | backend-subtask-prompts/B16-audit-logging.md | Audit middleware |
+
 | 32 | F16 Admin audit logs | subtask-prompts/F16-admin-audit-logs.md | Admin page |
+
 | 33 | B17 Security hardening | backend-subtask-prompts/B17-security-hardening.md | Helmet, CORS, throttles |
+
 | 34 | B18 Deploy + tests | backend-subtask-prompts/B18-deploy-tests.md | Runbook, tests |
 | 35 | F17 Polish + tests | subtask-prompts/F17-polish-tests.md | Motion, accessibility, tests |
 

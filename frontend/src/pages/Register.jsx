@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { config } from '../config/env.js'
@@ -24,13 +25,12 @@ function Register() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [errors, setErrors] = useState({})
   const [apiError, setApiError] = useState('')
-  const [successMessage, setSuccessMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const navigate = useNavigate()
 
   const handleSubmit = async (event) => {
     event.preventDefault()
     setApiError('')
-    setSuccessMessage('')
 
     const nextErrors = {
       email: validateEmail(email),
@@ -68,11 +68,12 @@ function Register() {
         return
       }
 
-      setSuccessMessage('Registration successful. You can now sign in.')
-      setName('')
-      setEmail('')
-      setPassword('')
-      setConfirmPassword('')
+      navigate('/login', {
+        replace: true,
+        state: {
+          message: 'Account created. Sign in with your email and password.',
+        },
+      })
     } catch (error) {
       setApiError('Unable to reach server. Check your connection and try again.')
     } finally {
@@ -82,6 +83,19 @@ function Register() {
 
   return (
     <div className="page-placeholder">
+      <p style={{ marginBottom: 'var(--space-3)' }}>
+        <Link
+          to="/"
+          style={{
+            fontSize: 'var(--text-sm)',
+            fontWeight: 600,
+            color: 'var(--color-text-muted)',
+            textDecoration: 'none',
+          }}
+        >
+          ← Back to home
+        </Link>
+      </p>
       <h1>Create your account</h1>
       <p>Set up your workspace access in a few steps.</p>
 
@@ -136,23 +150,26 @@ function Register() {
           </div>
         )}
 
-        {successMessage && (
-          <div
-            style={{
-              fontSize: 'var(--text-sm)',
-              color: 'var(--color-success)',
-            }}
-          >
-            {successMessage}
-          </div>
-        )}
-
         <div style={{ marginTop: 'var(--space-2)' }}>
           <Button type="submit" size="md" disabled={isSubmitting}>
             {isSubmitting ? 'Creating account…' : 'Create account'}
           </Button>
         </div>
       </form>
+
+      <p
+        style={{
+          marginTop: 'var(--space-5)',
+          fontSize: 'var(--text-sm)',
+          color: 'var(--color-text-muted)',
+          textAlign: 'center',
+        }}
+      >
+        Already have an account?{' '}
+        <Link to="/login" style={{ color: 'var(--color-primary-hover)', fontWeight: 600 }}>
+          Sign in
+        </Link>
+      </p>
     </div>
   )
 }
