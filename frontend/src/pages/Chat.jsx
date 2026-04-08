@@ -11,6 +11,7 @@ import {
   encryptGroupMessage,
   decryptGroupMessage,
 } from '../e2e/e2eService.js'
+import { idbSet, idbGet } from '../e2e/idb.js'
 import StoryTray from '../components/StoryTray.jsx'
 import { VoiceNotePlayer, VoiceNotePlayerFromFile } from '../chat/VoiceNotePlayer.jsx'
 import { MessageAttachments } from '../chat/attachments/MessageAttachments.jsx'
@@ -33,6 +34,8 @@ import { ChatMainHeader } from '../chat/layout/ChatMainHeader.jsx'
 import { ChatPinnedBar } from '../chat/layout/ChatPinnedBar.jsx'
 import { ChatMultiSelectBar } from '../chat/layout/ChatMultiSelectBar.jsx'
 import { ChatThreadPanel } from '../chat/layout/ChatThreadPanel.jsx'
+import FriendsPanel from '../components/FriendsPanel.jsx'
+import { E2EKeyBackupModal, useE2EBackupModal } from '../components/E2EKeyBackupModal.jsx'
 
 function initialsFromString(value) {
   const s = String(value ?? '').trim()
@@ -47,6 +50,7 @@ function initialsFromString(value) {
 function Chat() {
   const { user } = useApp()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [friendsPanelOpen, setFriendsPanelOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const accountMenuRef = useRef(null)
   const storyFocusId = (() => {
@@ -387,6 +391,8 @@ function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const [e2eReady, setE2eReady] = useState(false)
+
   // Initialize E2E keys once user is available.
   useEffect(() => {
     if (!user || !user.id) return
@@ -394,9 +400,11 @@ function Chat() {
     ;(async () => {
       try {
         await initE2E()
+        if (!cancelled) setE2eReady(true)
       } catch {
         // Backward compatible: plaintext still works if E2E init fails.
         if (cancelled) return
+        setE2eReady(true)
       }
     })()
     return () => {
@@ -476,7 +484,14 @@ function Chat() {
           })
           if (tempIdx !== -1) {
             const next = [...current]
-            next[tempIdx] = { ...next[tempIdx], ...normalized }
+            const optimisticContent = next[tempIdx].content
+            next[tempIdx] = {
+              ...next[tempIdx],
+              ...normalized,
+              // Preserve the optimistic plaintext — the socket-delivered E2E message
+              // has content=null since the server stores only the ciphertext.
+              content: normalized.content || optimisticContent,
+            }
             return next
           }
         }
@@ -491,11 +506,41 @@ function Chat() {
             let plaintext = null
             if (activeChannel.type === 'dm') {
               const isOwnMessage = user && String(normalized.sender) === String(user.id)
-              const peerUserId = isOwnMessage
-                ? (normalized.receiverId ? String(normalized.receiverId) : null)
-                : String(normalized.sender)
+
+              // Sender can never decrypt their own Signal-encrypted DM messages — the
+              // ciphertext is encrypted with the *receiver's* public key only.
+              // The realtime socket delivers the message back to the sender, but the
+              // content is already correct from the optimistic merge above.
+              // We cache the plaintext in IDB so history loads can show it too.
+              if (isOwnMessage) {
+                const existingContent = await idbGet(`sentMsg_${normalized.id}`)
+                  .catch(() => null)
+                if (!existingContent) {
+                  // Content should already be the real text in the optimistic message;
+                  // try to read it from current state and persist it.
+                  setMessages((current) => {
+                    const found = current.find((m) => m.id === normalized.id)
+                    if (found?.content && found.content !== 'Unable to decrypt message') {
+                      idbSet(`sentMsg_${normalized.id}`, found.content).catch(() => {})
+                    }
+                    return current
+                  })
+                }
+                // Do NOT attempt to decrypt — it will always fail for own DM messages.
+                return
+              }
+
+              const peerUserId = String(normalized.sender)
               if (!peerUserId) throw new Error('Missing peer user id for DM decryption')
-              plaintext = await decryptDmMessage(peerUserId, normalized.ciphertext)
+              const cachedContent = await idbGet(`decryptedMsg_${normalized.id}`).catch(() => null)
+              if (cachedContent) {
+                plaintext = cachedContent
+              } else {
+                plaintext = await decryptDmMessage(peerUserId, normalized.ciphertext)
+                if (plaintext !== null && plaintext !== 'Unable to decrypt message') {
+                  idbSet(`decryptedMsg_${normalized.id}`, plaintext).catch(() => {})
+                }
+              }
             } else if (activeChannel.type === 'group') {
               plaintext = await decryptGroupMessage(
                 String(activeChannel._id),
@@ -961,11 +1006,27 @@ function Chat() {
               try {
                 if (activeChannel.type === 'dm') {
                   const isOwnMessage = user && String(msg.sender) === String(user.id)
-                  const peerUserId = isOwnMessage
-                    ? (msg.receiverId ? String(msg.receiverId) : null)
-                    : String(msg.sender)
-                  if (!peerUserId) throw new Error('Missing peer user id for DM decryption')
-                  msg.content = await decryptDmMessage(peerUserId, msg.ciphertext)
+                  if (isOwnMessage) {
+                    // Sender's own messages are encrypted with the receiver's key —
+                    // they cannot be decrypted locally. Use the IDB plaintext cache.
+                    const cached = await idbGet(`sentMsg_${msg.id}`).catch(() => null)
+                    if (cached) {
+                      msg.content = cached
+                    } else {
+                      msg.content = msg.content || '[Message sent by you]'
+                    }
+                  } else {
+                    const peerUserId = String(msg.sender)
+                    const cachedContent = await idbGet(`decryptedMsg_${msg.id}`).catch(() => null)
+                    if (cachedContent) {
+                      msg.content = cachedContent
+                    } else {
+                      msg.content = await decryptDmMessage(peerUserId, msg.ciphertext)
+                      if (msg.content && msg.content !== 'Unable to decrypt message') {
+                        idbSet(`decryptedMsg_${msg.id}`, msg.content).catch(() => {})
+                      }
+                    }
+                  }
                 } else if (activeChannel.type === 'group') {
                   const pt = await decryptGroupMessage(String(activeChannel._id), String(msg.sender), msg.ciphertext, String(user.id))
                   if (pt === null) continue
@@ -1141,11 +1202,25 @@ function Chat() {
           try {
             if (activeChannel.type === 'dm') {
               const isOwnMessage = user && String(msg.sender) === String(user.id)
-              const peerUserId = isOwnMessage
-                ? (msg.receiverId ? String(msg.receiverId) : null)
-                : String(msg.sender)
-              if (!peerUserId) throw new Error('Missing peer user id for DM decryption')
-              msg.content = await decryptDmMessage(peerUserId, msg.ciphertext)
+              if (isOwnMessage) {
+                const cached = await idbGet(`sentMsg_${msg.id}`).catch(() => null)
+                if (cached) {
+                  msg.content = cached
+                } else {
+                  msg.content = msg.content || '[Message sent by you]'
+                }
+              } else {
+                const peerUserId = String(msg.sender)
+                const cachedContent = await idbGet(`decryptedMsg_${msg.id}`).catch(() => null)
+                if (cachedContent) {
+                  msg.content = cachedContent
+                } else {
+                  msg.content = await decryptDmMessage(peerUserId, msg.ciphertext)
+                  if (msg.content && msg.content !== 'Unable to decrypt message') {
+                    idbSet(`decryptedMsg_${msg.id}`, msg.content).catch(() => {})
+                  }
+                }
+              }
             } else if (activeChannel.type === 'group') {
               const pt = await decryptGroupMessage(String(activeChannel._id), String(msg.sender), msg.ciphertext, String(user.id))
               if (pt === null) continue
@@ -2478,12 +2553,27 @@ function Chat() {
         return
       }
 
+      if (activeChannel.type === 'dm') {
+        const finalId = data.id || data._id
+        if (finalId) await idbSet(`sentMsg_${finalId}`, text).catch(() => {})
+      }
+
       setMessages((current) => {
         // If the realtime socket already delivered this message (same id),
-        // drop the optimistic temp message to avoid duplicates.
+        // drop the optimistic temp message but patch the socket-delivered message
+        // with the known plaintext — its content will be null for E2E DMs since
+        // the sender cannot decrypt their own ciphertext.
         const alreadyIdx = current.findIndex((m) => m.id === data.id)
         if (alreadyIdx !== -1) {
-          return current.filter((m) => m.id !== tempId)
+          const next = current.filter((m) => m.id !== tempId)
+          if (activeChannel.type === 'dm' && data.ciphertextType) {
+            return next.map((m) =>
+              m.id === data.id
+                ? { ...m, content: m.content || text }
+                : m,
+            )
+          }
+          return next
         }
 
         return current.map((m) =>
@@ -2608,10 +2698,19 @@ function Chat() {
     activeChannel?.type === 'group' &&
     Boolean(currentMemberInfo) &&
     (whoCanAddMembers === 'everyone' || Boolean(currentMemberInfo?.isAdmin))
-  const dmOtherMember =
-    activeChannel?.type === 'dm'
-      ? infoMembers.find((m) => String(m.id) !== String(user?.id)) || infoMembers[0] || null
-      : null
+  const dmOtherMember = (() => {
+    if (activeChannel?.type !== 'dm') return null
+    const fromInfo = infoMembers.find((m) => String(m.id) !== String(user?.id)) || infoMembers[0]
+    if (fromInfo) return fromInfo
+    const dmInfo = dmInfoByChannelId[String(activeChannel._id)]
+    if (dmInfo && dmInfo.otherUserId) {
+      return {
+        id: dmInfo.otherUserId,
+        displayName: activeChannel.name,
+      }
+    }
+    return null
+  })()
   const dmPresence = dmOtherMember ? presence[String(dmOtherMember.id)] : null
   const dmPresenceText =
     dmPresence && dmPresence.status && dmPresence.status !== 'offline'
@@ -3279,6 +3378,8 @@ function Chat() {
     }
   }, [messageSearchOpen, messageSearchQuery, activeChannel?._id])
 
+  const [manualBackupOpen, setManualBackupOpen] = useState(false)
+
   return (
     <div className="gchat-app">
       <ChatRail
@@ -3286,6 +3387,9 @@ function Chat() {
         userInitials={userInitials}
         accountMenuOpen={accountMenuOpen}
         setAccountMenuOpen={setAccountMenuOpen}
+        friendsPanelOpen={friendsPanelOpen}
+        setFriendsPanelOpen={setFriendsPanelOpen}
+        onBackupKeys={() => setManualBackupOpen(true)}
       />
 
       <ChatSidebar
@@ -3299,6 +3403,8 @@ function Chat() {
         handleSelectChannel={handleSelectChannel}
         getChannelLabel={getChannelLabel}
         initialsFromString={initialsFromString}
+        showFriends={friendsPanelOpen}
+        setShowFriends={setFriendsPanelOpen}
       />
 
       <section className="gchat-main">
@@ -3492,6 +3598,15 @@ function Chat() {
         setRemoveConfirmMember={setRemoveConfirmMember}
         adminActionError={adminActionError}
       />
+      {friendsPanelOpen && (
+        <FriendsPanel
+          open={friendsPanelOpen}
+          onClose={() => setFriendsPanelOpen(false)}
+          onSelectFriend={handleSelectChannel}
+          enqueueToast={enqueueToast}
+        />
+      )}
+      <E2EModalContainer user={user} e2eReady={e2eReady} manualBackupOpen={manualBackupOpen} onManualClose={() => setManualBackupOpen(false)} />
       {selectedMemberInfo && (
         <MemberProfileModal
           selectedMemberInfo={selectedMemberInfo}
@@ -3564,6 +3679,24 @@ function Chat() {
         />
       )}
     </div>
+  )
+}
+
+function E2EModalContainer({ user, e2eReady, manualBackupOpen, onManualClose }) {
+  const { modalMode, dismissModal } = useE2EBackupModal(user, e2eReady)
+
+  // Manual backup takes priority over auto-detected mode.
+  const activeMode = manualBackupOpen ? 'backup' : modalMode
+  const handleDone = manualBackupOpen ? onManualClose : dismissModal
+  const handleSkip = manualBackupOpen ? onManualClose : dismissModal
+
+  if (!activeMode) return null
+  return (
+    <E2EKeyBackupModal
+      mode={activeMode}
+      onDone={handleDone}
+      onSkip={handleSkip}
+    />
   )
 }
 

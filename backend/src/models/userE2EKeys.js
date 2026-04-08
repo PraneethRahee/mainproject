@@ -32,6 +32,8 @@ const userE2EKeysSchema = new mongoose.Schema(
     signedPreKeyPublic: { type: String, required: true, trim: true },
     signedPreKeySignature: { type: String, required: true, trim: true },
     oneTimePreKeys: { type: [oneTimePreKeySchema], default: [] },
+    // Encrypted private key bundle for cross-browser restore (encrypted client-side with user PIN).
+    keyBackupBundle: { type: String, default: null },
   },
   { timestamps: true, versionKey: false },
 );

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { apiRequest, getAccessToken, clearSession, tryRestoreSession } from '../lib/session.js'
+import { resetE2E } from '../e2e/e2eService.js'
 
 const AppContext = createContext(null)
 
@@ -37,6 +38,7 @@ export function AppProvider({ children }) {
   }, [refreshUser])
 
   const logout = useCallback(() => {
+    resetE2E()   // Allow next login to re-run initE2E() with the stored keys.
     clearSession()
     setUser(null)
   }, [])

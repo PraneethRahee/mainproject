@@ -1,0 +1,18 @@
+sequenceDiagram
+  actor S as Sender
+  participant FE as Frontend Chat
+  participant WS as Socket.IO Server
+  participant DB as MongoDB Message
+  participant R as Receiver Frontend
+
+  S->>FE: Type and send message
+  FE->>WS: emit message:send(payload)
+  WS->>WS: Ensure member + canPost + rate limit
+  WS->>WS: Sanitize content
+  WS->>DB: Create Message
+  DB-->>WS: Message saved
+  WS-->>FE: ACK ok
+  WS-->>R: emit message:new to room
+  R->>R: Render incoming message
+  R->>WS: emit message:delivered / message:read
+  WS-->>FE: delivery/read status events

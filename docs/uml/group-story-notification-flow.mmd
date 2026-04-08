@@ -1,0 +1,44 @@
+sequenceDiagram
+  actor U as User
+  participant FE as Frontend Pages
+  participant BE as Backend Routes
+  participant DB as MongoDB
+
+  rect rgb(245, 245, 255)
+    Note over U,DB: Group Invite / Join Request
+    U->>FE: Open invite or join-request page
+    FE->>BE: POST /group/join-by-link or /group/:id/join-request
+    BE->>DB: Validate token/policy + check membership
+    alt approval policy
+      BE->>DB: Upsert pending GroupJoinRequest
+      BE-->>FE: status=requested
+    else open policy
+      BE->>DB: Create ChannelMember
+      BE-->>FE: status=joined
+    end
+  end
+
+  rect rgb(240, 255, 240)
+    Note over U,DB: Stories
+    U->>FE: Publish story
+    FE->>BE: POST /stories
+    BE->>BE: Sanitize + TTL validation
+    BE->>DB: Store Story with expiresAt/privacy
+    BE-->>FE: 201 created
+    FE->>BE: GET /stories/feed
+    BE->>DB: Query visible non-expired stories
+    DB-->>BE: Story feed
+    BE-->>FE: stories[]
+  end
+
+  rect rgb(255, 250, 235)
+    Note over U,DB: Notifications
+    FE->>BE: POST /notifications/push/subscribe
+    BE->>DB: Upsert NotificationSubscription
+    FE->>BE: GET /notifications?unreadOnly=true
+    BE->>DB: Query NotificationInbox
+    DB-->>BE: unread notifications
+    BE-->>FE: notifications[]
+    FE->>BE: POST /notifications/read
+    BE->>DB: Update readAt
+  end

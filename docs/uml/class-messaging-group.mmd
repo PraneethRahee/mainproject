@@ -1,0 +1,70 @@
+classDiagram
+  class Channel {
+    +ObjectId _id
+    +string name
+    +string type
+    +Object metadata
+    +Date lastMessageAt
+  }
+
+  class ChannelMember {
+    +ObjectId channel
+    +ObjectId user
+    +bool isAdmin
+    +bool canPost
+    +bool canManageMembers
+  }
+
+  class Message {
+    +ObjectId _id
+    +ObjectId channel
+    +ObjectId sender
+    +string content
+    +Array attachments
+    +Date createdAt
+    +Array deliveredTo
+    +Array readBy
+  }
+
+  class GroupMessage {
+    +ObjectId _id
+    +ObjectId groupId
+    +ObjectId senderId
+    +string content
+    +string type
+    +string status
+    +Array reactions
+    +Array readBy
+  }
+
+  class GroupInviteLink {
+    +ObjectId groupId
+    +string token
+    +Date expiresAt
+    +Date usedAt
+    +Date revokedAt
+  }
+
+  class GroupJoinRequest {
+    +ObjectId groupId
+    +ObjectId userId
+    +string status
+    +Date createdAt
+  }
+
+  class SocketGateway {
+    +channelJoin()
+    +messageSend()
+    +typingStartStop()
+    +messageDeliveredRead()
+    +groupJoinLeave()
+  }
+
+  Channel "1" --> "0..*" ChannelMember : membership
+  Channel "1" --> "0..*" Message : has
+  Channel "1" --> "0..*" GroupMessage : group stream
+  Channel "1" --> "0..*" GroupInviteLink : invite links
+  Channel "1" --> "0..*" GroupJoinRequest : join requests
+  SocketGateway ..> Message : create/broadcast
+  SocketGateway ..> GroupMessage : create/broadcast
+  SocketGateway ..> ChannelMember : permission checks

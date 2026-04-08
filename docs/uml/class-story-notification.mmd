@@ -1,0 +1,71 @@
+classDiagram
+  class Story {
+    +ObjectId _id
+    +ObjectId authorId
+    +string kind
+    +string content
+    +Date expiresAt
+    +Object privacy
+    +Array viewReceipts
+  }
+
+  class NotificationEvent {
+    +ObjectId _id
+    +string type
+    +ObjectId createdBy
+    +Array recipientUserIds
+    +Object payload
+    +string status
+  }
+
+  class NotificationInbox {
+    +ObjectId _id
+    +ObjectId userId
+    +string type
+    +Object payload
+    +Date createdAt
+    +Date readAt
+  }
+
+  class NotificationSubscription {
+    +ObjectId _id
+    +ObjectId userId
+    +string endpoint
+    +Object keys
+    +number expirationTime
+  }
+
+  class NotificationPreference {
+    +ObjectId userId
+    +bool messageEnabled
+    +bool callEnabled
+    +bool storyEnabled
+  }
+
+  class StoryRoutes {
+    +createStory()
+    +getFeed()
+    +markViewed()
+  }
+
+  class NotificationRoutes {
+    +subscribePush()
+    +getNotifications()
+    +markRead()
+    +getVapidPublicKey()
+  }
+
+  class NotificationWorker {
+    +processEventQueue()
+    +fanoutToInbox()
+    +sendWebPush()
+  }
+
+  StoryRoutes ..> Story : CRUD/read
+  StoryRoutes ..> NotificationEvent : enqueue best-effort
+  NotificationRoutes ..> NotificationInbox : query/update
+  NotificationRoutes ..> NotificationSubscription : upsert
+  NotificationWorker ..> NotificationEvent : consume
+  NotificationWorker ..> NotificationInbox : create
+  NotificationWorker ..> NotificationSubscription : deliver
+  NotificationPreference "1" --> "0..*" NotificationSubscription : configures

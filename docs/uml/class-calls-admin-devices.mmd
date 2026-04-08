@@ -1,0 +1,66 @@
+classDiagram
+  class Call {
+    +ObjectId _id
+    +ObjectId callerId
+    +ObjectId calleeId
+    +ObjectId conversationId
+    +string callType
+    +string status
+    +Object offer
+    +Date startedAt
+    +Date endedAt
+    +string endedReason
+    +ObjectId endedBy
+  }
+
+  class Session {
+    +ObjectId _id
+    +ObjectId user
+    +Date expiresAt
+    +Date revokedAt
+    +string revokedReason
+  }
+
+  class AuditLog {
+    +ObjectId _id
+    +ObjectId actor
+    +string action
+    +string targetType
+    +string targetId
+    +string result
+    +string ip
+    +string userAgent
+    +Object metadata
+    +Date createdAt
+  }
+
+  class CallRoutes {
+    +getCallLogs()
+    +getActiveCall()
+  }
+
+  class CallSocketHandlers {
+    +callInvite()
+    +callSignal()
+    +callEnd()
+  }
+
+  class AdminRoutes {
+    +getAuditLogs()
+  }
+
+  class AuditMiddleware {
+    +writeAuditLog()
+    +getRequestClientInfo()
+  }
+
+  class LinkedDevicesUI {
+    +loadSessions()
+    +revokeSession()
+  }
+
+  CallRoutes ..> Call : query
+  CallSocketHandlers ..> Call : create/update
+  AdminRoutes ..> AuditLog : read
+  AdminRoutes ..> AuditMiddleware : write view log
+  LinkedDevicesUI ..> Session : list/revoke via auth API

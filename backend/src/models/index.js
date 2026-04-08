@@ -28,6 +28,8 @@ const { NotificationSubscription } = require('./notificationSubscription');
 const { NotificationPreference } = require('./notificationPreference');
 const { ConversationNotificationPreference } = require('./conversationNotificationPreference');
 const { NotificationEvent } = require('./notificationEvent');
+const { FriendRequest } = require('./FriendRequest');
+const { Friendship } = require('./Friendship');
 
 module.exports = {
   User,
@@ -66,5 +68,7 @@ module.exports = {
   ConversationNotificationPreference,
   NotificationEvent,
   Call,
+  FriendRequest,
+  Friendship,
 };
 

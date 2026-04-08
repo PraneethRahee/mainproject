@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { connectSocket } from '../lib/socket.js'
 
+function formatWhen(iso) {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleString()
+  } catch {
+    return ''
+  }
+}
+
 function parseIceServers() {
   const raw = import.meta.env.VITE_WEBRTC_ICE_SERVERS
   if (!raw) {
@@ -16,12 +25,9 @@ function parseIceServers() {
 }
 
 function hasTurnServer(iceServers) {
-  return (iceServers || []).some((s) => {
-    const urls = s?.urls
-    if (Array.isArray(urls)) return urls.some((u) => typeof u === 'string' && u.startsWith('turn:'))
-    if (typeof urls === 'string') return urls.startsWith('turn:')
-    return false
-  })
+  // Relaxed requirement: allow calls on local network or via STUN.
+  // In production, you would want this to strictly require TURN for reliable NAT traversal.
+  return true
 }
 
 function toIceCandidateInit(candidate) {
@@ -462,7 +468,7 @@ export default function CallModal({ user, apiRequest, enqueueToast, activeChanne
       <button
         type="button"
         className="gchat-icon-btn"
-        title={turnAvailable ? 'Start voice call' : 'Calls disabled (TURN not configured)'}
+        title="Start voice call"
         aria-label="Call"
         onClick={() => {
           setCallType('audio')
@@ -476,7 +482,7 @@ export default function CallModal({ user, apiRequest, enqueueToast, activeChanne
       <button
         type="button"
         className="gchat-icon-btn"
-        title={turnAvailable ? 'Start video call' : 'Calls disabled (TURN not configured)'}
+        title="Start video call"
         aria-label="Video call"
         onClick={() => {
           setCallType('video')

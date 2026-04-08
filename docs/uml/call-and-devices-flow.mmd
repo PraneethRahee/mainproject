@@ -1,0 +1,32 @@
+sequenceDiagram
+  actor C as Caller
+  participant FE1 as Caller CallModal
+  participant WS as Socket.IO Backend
+  participant DB as MongoDB
+  participant FE2 as Callee
+
+  rect rgb(235, 245, 255)
+    Note over C,FE2: Call Invite + Signaling
+    C->>FE1: Start audio/video call
+    FE1->>FE1: getUserMedia + create offer
+    FE1->>WS: emit call:invite(calleeId, offer)
+    WS->>DB: Create Call(status=ringing)
+    DB-->>WS: callId
+    WS-->>FE2: emit call:invite
+    FE2->>WS: emit call:signal(answer/ICE)
+    WS-->>FE1: forward call:signal
+    FE1->>WS: emit call:end
+    WS->>DB: Update Call status ended/missed
+    WS-->>FE2: emit call:ended
+  end
+
+  rect rgb(245, 255, 245)
+    Note over C,FE2: Linked Devices / Session Revoke
+    FE1->>WS: HTTP GET /auth/sessions
+    WS->>DB: Find Session documents for user
+    DB-->>WS: sessions[]
+    WS-->>FE1: sessions list
+    FE1->>WS: HTTP DELETE /auth/sessions/:sessionId
+    WS->>DB: Set revokedAt and revokedReason
+    WS-->>FE1: ok
+  end

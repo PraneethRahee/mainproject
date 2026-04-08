@@ -302,5 +302,49 @@ router.post('/verification/:otherUserId', async (req, res) => {
   }
 });
 
+// PUT /e2e/keybackup
+// Store an encrypted private key bundle for cross-browser restore.
+// The bundle is encrypted client-side with a user-set PIN — the server never sees plaintext keys.
+router.put('/keybackup', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { encryptedBundle } = req.body || {};
+    if (typeof encryptedBundle !== 'string' || !encryptedBundle.trim()) {
+      return res.status(400).json({ error: 'encryptedBundle is required' });
+    }
+    if (encryptedBundle.length > 65536) {
+      return res.status(400).json({ error: 'encryptedBundle too large' });
+    }
+    await UserE2EKeys.updateOne(
+      { userId, deviceId: 'web:1' },
+      { $set: { keyBackupBundle: encryptedBundle.trim() } },
+      { upsert: true },
+    ).exec();
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error('PUT /e2e/keybackup error', err);
+    return res.status(500).json({ error: 'Failed to store key backup' });
+  }
+});
+
+// GET /e2e/keybackup
+// Retrieve the encrypted key bundle for the authenticated user.
+router.get('/keybackup', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const doc = await UserE2EKeys.findOne({ userId, deviceId: 'web:1' })
+      .select('keyBackupBundle')
+      .lean()
+      .exec();
+    if (!doc || !doc.keyBackupBundle) {
+      return res.status(404).json({ error: 'No key backup found' });
+    }
+    return res.status(200).json({ encryptedBundle: doc.keyBackupBundle });
+  } catch (err) {
+    console.error('GET /e2e/keybackup error', err);
+    return res.status(500).json({ error: 'Failed to retrieve key backup' });
+  }
+});
+
 module.exports = router;
 

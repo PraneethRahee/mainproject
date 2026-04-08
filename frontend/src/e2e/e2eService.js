@@ -8,7 +8,7 @@ import {
 import { apiRequest } from '../lib/session.js'
 import { SignalProtocolIDBStore } from './signalStore.js'
 import { abToB64, abToUtf8, b64ToAb, utf8ToAb } from './utils.js'
-import { idbSet } from './idb.js'
+import { idbSet, idbGet, idbKeys } from './idb.js'
 
 const DEVICE_ID_STR = 'web:1'
 const DEVICE_ID_NUM = 1
@@ -152,14 +152,36 @@ function randomKeyId() {
 }
 
 async function ensureSignedPreKey(identityKeyPair) {
+  // Reuse the same signed prekey across page reloads so existing sessions survive.
+  const storedId = await idbGet('signal:activeSignedPreKeyId')
+  if (storedId) {
+    const existing = await store.loadSignedPreKey(storedId)
+    if (existing) {
+      // Re-generate with same keyId so we can produce a valid signature for publishing.
+      const regenSigned = await KeyHelper.generateSignedPreKey(identityKeyPair, storedId)
+      await store.storeSignedPreKey(regenSigned.keyId, regenSigned.keyPair)
+      return { signedPreKeyId: regenSigned.keyId, signedPreKey: regenSigned }
+    }
+  }
+  // First time: generate and persist.
   const signedPreKeyId = randomKeyId()
   const signedPreKey = await KeyHelper.generateSignedPreKey(identityKeyPair, signedPreKeyId)
   await store.storeSignedPreKey(signedPreKeyId, signedPreKey.keyPair)
+  await idbSet('signal:activeSignedPreKeyId', signedPreKeyId)
   return { signedPreKeyId, signedPreKey }
 }
 
 async function ensurePreKeys(minCount = 30) {
-  // We keep a rolling set of prekeys. For simplicity, generate a fresh batch each init.
+  // Reuse existing prekeys from IDB to avoid invalidating existing sessions.
+  const existingIds = await idbGet('signal:publishedPreKeyIds')
+  if (Array.isArray(existingIds) && existingIds.length >= 5) {
+    const checks = await Promise.all(existingIds.map((id) => store.loadPreKey(id)))
+    const alive = existingIds.filter((_, i) => !!checks[i])
+    if (alive.length >= 5) {
+      return alive.map((id, i) => ({ keyId: id, keyPair: checks[existingIds.indexOf(id)] }))
+    }
+  }
+  // Generate a fresh batch.
   const base = randomKeyId()
   const batch = []
   for (let i = 0; i < minCount; i++) {
@@ -167,17 +189,32 @@ async function ensurePreKeys(minCount = 30) {
     await store.storePreKey(pk.keyId, pk.keyPair)
     batch.push(pk)
   }
+  await idbSet('signal:publishedPreKeyIds', batch.map((pk) => pk.keyId))
   return batch
+}
+
+let _e2eInitialized = false
+
+export function resetE2E() {
+  // Call on logout so the next login re-runs initE2E() properly.
+  _e2eInitialized = false
 }
 
 export async function initE2E() {
   const { identityKeyPair } = await ensureIdentity()
+
+  // Skip re-publishing within the same JS session (e.g. hot-reload).
+  if (_e2eInitialized) return { ok: true }
+
+  const currentPubKeyB64 = abToB64(identityKeyPair.pubKey)
+  const publishedIdentityKey = await idbGet('signal:publishedIdentityKey')
+
   const { signedPreKeyId, signedPreKey } = await ensureSignedPreKey(identityKeyPair)
   const preKeys = await ensurePreKeys(30)
 
   const body = {
     deviceId: DEVICE_ID_STR,
-    identityKeyPublic: abToB64(identityKeyPair.pubKey),
+    identityKeyPublic: currentPubKeyB64,
     signedPreKeyId,
     signedPreKeyPublic: abToB64(signedPreKey.keyPair.pubKey),
     signedPreKeySignature: abToB64(signedPreKey.signature),
@@ -197,6 +234,130 @@ export async function initE2E() {
     throw new Error(data.error || 'Failed to publish E2E keys')
   }
 
+  await idbSet('signal:publishedIdentityKey', currentPubKeyB64)
+  _e2eInitialized = true
+  return { ok: true }
+}
+
+// ─── Cross-browser key backup / restore ───────────────────────────────────────
+// Keys are encrypted client-side with AES-GCM using a key derived from the user's
+// PIN via PBKDF2. The server only stores the encrypted blob — it never sees private keys.
+
+async function pinToAesKey(pin, saltB64) {
+  const enc = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveKey'])
+  const salt = b64ToAb(saltB64)
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+}
+
+export async function checkKeyBackupExists() {
+  const res = await apiRequest('/e2e/keybackup')
+  return res.ok
+}
+
+export async function exportKeyBundle(pin) {
+  if (!pin || pin.length < 4) throw new Error('PIN must be at least 4 characters')
+
+  // Gather everything from IDB needed to restore on another browser.
+  const identityKeyPair = await store.getIdentityKeyPair()
+  const registrationId = await store.getLocalRegistrationId()
+  const signedPreKeyId = await idbGet('signal:activeSignedPreKeyId')
+  const preKeyIds = await idbGet('signal:publishedPreKeyIds')
+
+  if (!identityKeyPair || !registrationId) throw new Error('No E2E identity found — run initE2E first')
+
+  const signedPreKey = signedPreKeyId ? await store.loadSignedPreKey(signedPreKeyId) : null
+  const preKeys = []
+  if (Array.isArray(preKeyIds)) {
+    for (const id of preKeyIds) {
+      const kp = await store.loadPreKey(id)
+      if (kp) preKeys.push({ keyId: id, pubKey: abToB64(kp.pubKey), privKey: abToB64(kp.privKey) })
+    }
+  }
+
+  const bundle = JSON.stringify({
+    v: 1,
+    registrationId,
+    identityKeyPair: { pubKey: abToB64(identityKeyPair.pubKey), privKey: abToB64(identityKeyPair.privKey) },
+    signedPreKeyId: signedPreKeyId || null,
+    signedPreKey: signedPreKey ? { pubKey: abToB64(signedPreKey.pubKey), privKey: abToB64(signedPreKey.privKey) } : null,
+    preKeys,
+  })
+
+  // Encrypt with AES-GCM using PBKDF2-derived key.
+  const saltBytes = crypto.getRandomValues(new Uint8Array(16))
+  const saltB64 = abToB64(saltBytes.buffer)
+  const aesKey = await pinToAesKey(pin, saltB64)
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, new TextEncoder().encode(bundle))
+
+  const encryptedBundle = JSON.stringify({
+    salt: saltB64,
+    iv: abToB64(iv.buffer),
+    ct: abToB64(ct),
+  })
+
+  // Upload to server.
+  const res = await apiRequest('/e2e/keybackup', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ encryptedBundle }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || 'Failed to upload key backup')
+  }
+  return { ok: true }
+}
+
+export async function importKeyBundle(pin) {
+  if (!pin || pin.length < 4) throw new Error('PIN must be at least 4 characters')
+
+  // Download encrypted bundle from server.
+  const res = await apiRequest('/e2e/keybackup')
+  if (!res.ok) throw new Error('No key backup found on server — set one up first')
+  const { encryptedBundle } = await res.json()
+
+  const { salt, iv, ct } = JSON.parse(encryptedBundle)
+  const aesKey = await pinToAesKey(pin, salt)
+  let plaintext
+  try {
+    const ptBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(b64ToAb(iv)) }, aesKey, b64ToAb(ct))
+    plaintext = new TextDecoder().decode(ptBuf)
+  } catch {
+    throw new Error('Wrong PIN — decryption failed')
+  }
+
+  const bundle = JSON.parse(plaintext)
+  if (!bundle || bundle.v !== 1) throw new Error('Invalid bundle format')
+
+  // Restore everything to IDB.
+  const identityKeyPair = { pubKey: b64ToAb(bundle.identityKeyPair.pubKey), privKey: b64ToAb(bundle.identityKeyPair.privKey) }
+  await idbSet('signal:identityKeyPair', identityKeyPair)
+  await idbSet('signal:registrationId', bundle.registrationId)
+
+  if (bundle.signedPreKeyId && bundle.signedPreKey) {
+    const spkPair = { pubKey: b64ToAb(bundle.signedPreKey.pubKey), privKey: b64ToAb(bundle.signedPreKey.privKey) }
+    await store.storeSignedPreKey(bundle.signedPreKeyId, spkPair)
+    await idbSet('signal:activeSignedPreKeyId', bundle.signedPreKeyId)
+  }
+
+  const restoredIds = []
+  for (const pk of bundle.preKeys || []) {
+    const kp = { pubKey: b64ToAb(pk.pubKey), privKey: b64ToAb(pk.privKey) }
+    await store.storePreKey(pk.keyId, kp)
+    restoredIds.push(pk.keyId)
+  }
+  if (restoredIds.length > 0) await idbSet('signal:publishedPreKeyIds', restoredIds)
+
+  // Reset init flag so initE2E re-publishes the restored keys.
+  _e2eInitialized = false
   return { ok: true }
 }
 
@@ -243,10 +404,17 @@ export async function encryptDmMessage(otherUserId, plaintext) {
   const msgBytes = utf8ToAb(plaintext)
   const ciphertext = await cipher.encrypt(msgBytes)
 
+  let bodyB64
+  if (typeof ciphertext.body === 'string') {
+    bodyB64 = btoa(ciphertext.body)
+  } else {
+    bodyB64 = abToB64(ciphertext.body)
+  }
+
   return {
     ciphertext: JSON.stringify({
       t: ciphertext.type,
-      b: abToB64(ciphertext.body),
+      b: bodyB64,
     }),
     ciphertextType: 'signal_v1',
   }

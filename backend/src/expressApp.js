@@ -18,6 +18,7 @@ const chatLockRoutes = require('./routes/chatLockRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const storyRoutes = require('./routes/storyRoutes');
 const callRoutes = require('./routes/callRoutes');
+const friendRoutes = require('./routes/friends');
 
 const featurePushNotificationsEnabled = Boolean(config.featurePushNotificationsEnabled);
 const featureCallsEnabled = Boolean(config.featureCallsEnabled);
@@ -31,24 +32,9 @@ app.use(
   }),
 );
 
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
-
-function allowCorsOrigin(origin, callback) {
-  if (!origin) {
-    return callback(null, true);
-  }
-  if (allowedOrigins.includes(origin)) {
-    return callback(null, true);
-  }
-  return callback(new Error('Not allowed by CORS'));
-}
-
 app.use(
   cors({
-    origin: allowCorsOrigin,
+    origin: true,
     credentials: true,
   }),
 );
@@ -67,6 +53,7 @@ app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/channels', channelRoutes);
 app.use('/conversations', conversationRoutes);
+app.use('/friends', friendRoutes);
 app.use('/e2e', e2eRoutes);
 app.use('/files', fileRoutes);
 app.use('/abuse', abuseRoutes);
@@ -82,7 +69,6 @@ app.use('/admin', adminRoutes);
 
 module.exports = {
   app,
-  allowCorsOrigin,
   featurePushNotificationsEnabled,
   featureStoriesEnabled,
   featureCallsEnabled,

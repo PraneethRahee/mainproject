@@ -1,0 +1,43 @@
+classDiagram
+  class User {
+    +ObjectId _id
+    +string email
+    +string displayName
+    +string role
+    +string passwordHash
+    +bool mfaEnabled
+    +string mfaSecret
+  }
+
+  class Session {
+    +ObjectId _id
+    +ObjectId user
+    +string refreshTokenHash
+    +string tokenFamilyId
+    +string userAgent
+    +string ip
+    +Date expiresAt
+    +Date revokedAt
+    +string revokedReason
+  }
+
+  class AuthRoutes {
+    +register()
+    +login()
+    +mfaSetup()
+    +mfaVerify()
+    +refresh()
+    +logout()
+    +listSessions()
+    +revokeSession()
+  }
+
+  class AuthMiddleware {
+    +requireAuth()
+    +getUserFromToken()
+  }
+
+  User "1" --> "0..*" Session : owns
+  AuthRoutes ..> User : read/write
+  AuthRoutes ..> Session : create/rotate/revoke
+  AuthRoutes ..> AuthMiddleware : uses

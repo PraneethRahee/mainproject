@@ -16,7 +16,6 @@ const { enqueueNotificationEvent } = require('./services/notificationService');
 const { logTelemetry, incMetric, safeErrorMessage } = require('./utils/telemetry');
 const {
   app,
-  allowCorsOrigin,
   featurePushNotificationsEnabled,
   featureStoriesEnabled,
   featureCallsEnabled,
@@ -26,7 +25,7 @@ const httpServer = http.createServer(app);
 
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: allowCorsOrigin,
+    origin: true,
     credentials: true,
   },
 });

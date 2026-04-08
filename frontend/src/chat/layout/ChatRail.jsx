@@ -1,21 +1,36 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useApp } from '../../context/AppContext.jsx'
-import { iconChat, iconMeet, iconSpaces } from './ChatLayoutIcons.jsx'
+import { iconChat, iconPeople } from './ChatLayoutIcons.jsx'
 
-export function ChatRail({ accountMenuRef, userInitials, accountMenuOpen, setAccountMenuOpen }) {
+export function ChatRail({
+  accountMenuRef,
+  userInitials,
+  accountMenuOpen,
+  setAccountMenuOpen,
+  friendsPanelOpen,
+  setFriendsPanelOpen,
+  onBackupKeys,
+}) {
   const { user, logout } = useApp()
   const navigate = useNavigate()
 
   return (
     <aside className="gchat-rail" aria-label="Primary navigation">
-      <button type="button" className="gchat-rail-btn gchat-rail-btn--active" title="Chat">
+      <button 
+        type="button" 
+        className={`gchat-rail-btn ${!friendsPanelOpen ? 'gchat-rail-btn--active' : ''}`}
+        title="Chat"
+        onClick={() => setFriendsPanelOpen(false)}
+      >
         {iconChat}
       </button>
-      <button type="button" className="gchat-rail-btn" title="Spaces">
-        {iconSpaces}
-      </button>
-      <button type="button" className="gchat-rail-btn" title="Meet">
-        {iconMeet}
+      <button 
+        type="button" 
+        className={`gchat-rail-btn ${friendsPanelOpen ? 'gchat-rail-btn--active' : ''}`}
+        title="Friends" 
+        onClick={() => setFriendsPanelOpen(true)}
+      >
+        {iconPeople}
       </button>
       <div className="gchat-rail-spacer" />
       <div className="gchat-rail-footer" ref={accountMenuRef}>
@@ -56,6 +71,18 @@ export function ChatRail({ accountMenuRef, userInitials, accountMenuOpen, setAcc
             </NavLink>
             <button
               type="button"
+              className="gchat-account-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setAccountMenuOpen(false)
+                onBackupKeys?.()
+              }}
+            >
+              🔐&nbsp; Backup E2E Keys
+            </button>
+            <div className="gchat-account-menu-divider" role="separator" />
+            <button
+              type="button"
               className="gchat-account-menu-item gchat-account-menu-item--danger"
               role="menuitem"
               onClick={() => {
@@ -72,3 +99,5 @@ export function ChatRail({ accountMenuRef, userInitials, accountMenuOpen, setAcc
     </aside>
   )
 }
+
+export default ChatRail

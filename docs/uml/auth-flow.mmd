@@ -1,0 +1,38 @@
+sequenceDiagram
+  actor U as User
+  participant FE as Frontend (Login/Register/MFA)
+  participant BE as Backend Auth API
+  participant DB as MongoDB
+
+  rect rgb(230, 245, 255)
+    Note over U,DB: Signup
+    U->>FE: Enter email/password/name
+    FE->>BE: POST /auth/register
+    BE->>DB: Check existing user
+    DB-->>BE: Not found
+    BE->>BE: Hash password (bcrypt)
+    BE->>DB: Create user
+    DB-->>BE: Created
+    BE-->>FE: 201 success
+    FE-->>U: Redirect to login
+  end
+
+  rect rgb(240, 255, 240)
+    Note over U,DB: Signin + MFA
+    U->>FE: Enter credentials
+    FE->>BE: POST /auth/login
+    BE->>DB: Validate user + password
+    alt MFA enabled
+      BE-->>FE: requiresMfa + tempToken
+      U->>FE: Enter OTP
+      FE->>BE: POST /auth/mfa/verify
+      BE->>DB: Verify OTP + create Session
+      DB-->>BE: Session stored
+      BE-->>FE: accessToken + refreshToken
+    else MFA disabled
+      BE->>DB: Create Session
+      DB-->>BE: Session stored
+      BE-->>FE: accessToken + refreshToken
+    end
+    FE-->>U: Navigate /chat
+  end
